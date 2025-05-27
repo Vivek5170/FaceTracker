@@ -25,7 +25,7 @@ class PoseInvariantFaceTracker:
         print(f"   Images Directory: {imgs_dir}")
         
         # Initialize InsightFace
-        self.app = FaceAnalysis(name=model_name, providers=['CPUExecutionProvider'])
+        self.app = FaceAnalysis(name=model_name, providers=['CUDAExecutionProvider'])
         self.app.prepare(ctx_id=0)
         
         # Configuration
@@ -419,9 +419,13 @@ class PoseInvariantFaceTracker:
         print(f"📊 Video info: {total_frames} frames, {fps:.1f} FPS")
         
         frame_count = 0
+        start_time = time.time()
+
         
         while True:
             ret, frame = cap.read()
+
+
             if not ret:
                 break
             
@@ -446,6 +450,14 @@ class PoseInvariantFaceTracker:
                 break
             
             frame_count += 1
+
+        end_time = time.time()
+        elapsed = end_time - start_time
+        processing_fps = frame_count / elapsed
+
+        print(f"⏱️ Total processing time: {elapsed:.2f} seconds")
+        print(f"🚀 Effective processing FPS: {processing_fps:.2f}")
+
         
         cap.release()
         cv2.destroyAllWindows()
