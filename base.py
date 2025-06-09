@@ -35,7 +35,6 @@ class PoseInvariantFaceTracker:
         
         # Known faces database - now stores multiple embeddings per person
         self.known_faces = {}  # {name: [embedding1, embedding2, ...]}
-        self.face_database_file = "face_database_multi.json"
         
         # Voting system for robust identification
         self.min_votes = 2  # Minimum votes needed for identification
@@ -51,6 +50,13 @@ class PoseInvariantFaceTracker:
         
         print("✅ Pose-Invariant Face Tracker initialized!")
     
+    def save_person_embeddings(self, person_name, embeddings, person_dir):
+        """Save all embeddings as a single .npy file in the person's folder (e.g., vivek.npy)"""
+        if embeddings:
+            arr = np.stack(embeddings)
+            emb_path = os.path.join(person_dir, f"{person_name}.npy")
+            np.save(emb_path, arr)
+
     def load_faces_from_directory(self):
         """Load and process all face images from the imgs directory structure"""
         if not os.path.exists(self.imgs_dir):
@@ -74,43 +80,61 @@ class PoseInvariantFaceTracker:
             
             print(f"  Processing {person_name}...")
             
-            # Get all image files in person's directory
-            image_files = []
-            for ext in image_extensions:
-                image_files.extend(glob.glob(os.path.join(person_dir, ext)))
-                image_files.extend(glob.glob(os.path.join(person_dir, ext.upper())))
-            
-            processed_images = 0
-            for img_path in image_files:
+            # Try to load existing single .npy embeddings (e.g., vivek.npy)
+            emb_file = os.path.join(person_dir, f"{person_name}.npy")
+            if os.path.exists(emb_file):
                 try:
-                    # Load and process image
-                    img = cv2.imread(img_path)
-                    if img is None:
-                        print(f"    ⚠️ Failed to load: {os.path.basename(img_path)}")
-                        continue
-                    
-                    # Detect faces in image
-                    faces = self.app.get(img)
-                    
-                    if len(faces) == 0:
-                        print(f"    ⚠️ No face detected in: {os.path.basename(img_path)}")
-                        continue
-                    elif len(faces) > 1:
-                        print(f"    ⚠️ Multiple faces detected in: {os.path.basename(img_path)}, using largest")
-                        # Use the largest face (most likely the main subject)
-                        faces = [max(faces, key=lambda x: (x.bbox[2] - x.bbox[0]) * (x.bbox[3] - x.bbox[1]))]
-                    
-                    # Extract embedding
-                    face = faces[0]
-                    if face.det_score >= self.confidence_threshold:
-                        person_embeddings.append(face.embedding)
-                        processed_images += 1
-                        print(f"    ✅ Processed: {os.path.basename(img_path)}")
+                    arr = np.load(emb_file)
+                    if arr.ndim == 1:
+                        person_embeddings = [arr]
                     else:
-                        print(f"    ⚠️ Low confidence in: {os.path.basename(img_path)}")
-                        
+                        person_embeddings = [arr[i] for i in range(arr.shape[0])]
                 except Exception as e:
-                    print(f"    ❌ Error processing {os.path.basename(img_path)}: {e}")
+                    print(f"    ⚠️ Failed to load embedding {emb_file}: {e}")
+            
+            if not person_embeddings:
+                print(f"    ℹ️ No embeddings found, creating from images...")
+                # Get all image files in person's directory
+                image_files = []
+                for ext in image_extensions:
+                    image_files.extend(glob.glob(os.path.join(person_dir, ext)))
+                    image_files.extend(glob.glob(os.path.join(person_dir, ext.upper())))
+                
+                processed_images = 0
+                for img_path in image_files:
+                    try:
+                        # Load and process image
+                        img = cv2.imread(img_path)
+                        if img is None:
+                            print(f"    ⚠️ Failed to load: {os.path.basename(img_path)}")
+                            continue
+                        
+                        # Detect faces in image
+                        faces = self.app.get(img)
+                        
+                        if len(faces) == 0:
+                            print(f"    ⚠️ No face detected in: {os.path.basename(img_path)}")
+                            continue
+                        elif len(faces) > 1:
+                            print(f"    ⚠️ Multiple faces detected in: {os.path.basename(img_path)}, using largest")
+                            # Use the largest face (most likely the main subject)
+                            faces = [max(faces, key=lambda x: (x.bbox[2] - x.bbox[0]) * (x.bbox[3] - x.bbox[1]))]
+                        
+                        # Extract embedding
+                        face = faces[0]
+                        if face.det_score >= self.confidence_threshold:
+                            person_embeddings.append(face.embedding)
+                            processed_images += 1
+                            print(f"    ✅ Processed: {os.path.basename(img_path)}")
+                        else:
+                            print(f"    ⚠️ Low confidence in: {os.path.basename(img_path)}")
+                        
+                    except Exception as e:
+                        print(f"    ❌ Error processing {os.path.basename(img_path)}: {e}")
+                
+                if person_embeddings:
+                    self.save_person_embeddings(person_name, person_embeddings, person_dir)
+                    print(f"    💾 Saved {len(person_embeddings)} embeddings for {person_name} in {person_name}.npy.")
             
             if person_embeddings:
                 self.known_faces[person_name] = person_embeddings
@@ -120,40 +144,6 @@ class PoseInvariantFaceTracker:
                 print(f"  ❌ No valid embeddings found for {person_name}")
         
         print(f"📊 Total faces loaded: {total_faces_loaded} from {len(self.known_faces)} people")
-        
-        # Save the loaded embeddings
-        self.save_face_database()
-    
-    def save_face_database(self):
-        """Save known faces to file"""
-        try:
-            # Convert numpy arrays to lists for JSON serialization
-            data = {
-                name: [embedding.tolist() for embedding in embeddings]
-                for name, embeddings in self.known_faces.items()
-            }
-            with open(self.face_database_file, 'w') as f:
-                json.dump(data, f, indent=2)
-            total_embeddings = sum(len(embeddings) for embeddings in self.known_faces.values())
-            print(f"💾 Saved {total_embeddings} embeddings from {len(self.known_faces)} people to database")
-        except Exception as e:
-            print(f"⚠️ Failed to save face database: {e}")
-    
-    def load_face_database(self):
-        """Load known faces from file"""
-        if os.path.exists(self.face_database_file):
-            try:
-                with open(self.face_database_file, 'r') as f:
-                    data = json.load(f)
-                    # Convert lists back to numpy arrays
-                    self.known_faces = {
-                        name: [np.array(embedding) for embedding in embeddings]
-                        for name, embeddings in data.items()
-                    }
-                total_embeddings = sum(len(embeddings) for embeddings in self.known_faces.values())
-                print(f"📁 Loaded {total_embeddings} embeddings from {len(self.known_faces)} people from database")
-            except Exception as e:
-                print(f"⚠️ Failed to load face database: {e}")
     
     def cosine_similarity(self, emb1, emb2):
         """Calculate cosine similarity between embeddings"""
