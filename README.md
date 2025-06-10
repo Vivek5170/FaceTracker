@@ -10,7 +10,7 @@ pip install -r requirements.txt
 ```
 
 ### 2. Add Photos
-Create folders with person names:
+Create folders with person names inside the `imgs` directory. Only the folder names are important; do not upload the actual images to version control:
 ```
 imgs/
 ├── alice/
@@ -24,10 +24,11 @@ imgs/
     ├── pic1.jpg
     └── pic2.jpg
 ```
+> **Note:** The `imgs` directory should exist in your repository, but all subfolders and image files inside it are ignored by `.gitignore`. Only the directory structure is tracked, not the photos themselves.
 
 ### 3. Run
 ```bash
-python pose_invariant_tracker.py
+python base.py
 ```
 
 ## Controls
